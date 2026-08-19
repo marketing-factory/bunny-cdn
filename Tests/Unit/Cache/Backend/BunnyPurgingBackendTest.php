@@ -18,7 +18,7 @@ final class BunnyPurgingBackendTest extends UnitTestCase
 
     private function createSubject(): BunnyPurgingBackend
     {
-        $backend = new BunnyPurgingBackend('testing', [
+        $backend = new BunnyPurgingBackend([
             'innerBackend' => TransientMemoryBackend::class,
             'innerOptions' => [],
         ]);

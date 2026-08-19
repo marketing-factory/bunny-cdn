@@ -26,11 +26,11 @@ class BunnyPurgingBackend implements BackendInterface, TaggableBackendInterface
 {
     private readonly BackendInterface&TaggableBackendInterface $innerBackend;
 
-    public function __construct(string $context, array $options = [])
+    public function __construct(array $options = [])
     {
         $innerBackendClass = $options['innerBackend'];
         $innerOptions = $options['innerOptions'] ?? [];
-        $this->innerBackend = new $innerBackendClass($context, $innerOptions);
+        $this->innerBackend = new $innerBackendClass($innerOptions);
     }
 
     public function setCache(FrontendInterface $cache): void
@@ -38,22 +38,22 @@ class BunnyPurgingBackend implements BackendInterface, TaggableBackendInterface
         $this->innerBackend->setCache($cache);
     }
 
-    public function set($entryIdentifier, $data, array $tags = [], $lifetime = null): void
+    public function set(string $entryIdentifier, string $data, array $tags = [], ?int $lifetime = null): void
     {
         $this->innerBackend->set($entryIdentifier, $data, $tags, $lifetime);
     }
 
-    public function get($entryIdentifier)
+    public function get(string $entryIdentifier): mixed
     {
         return $this->innerBackend->get($entryIdentifier);
     }
 
-    public function has($entryIdentifier)
+    public function has(string $entryIdentifier): bool
     {
         return $this->innerBackend->has($entryIdentifier);
     }
 
-    public function remove($entryIdentifier)
+    public function remove(string $entryIdentifier): bool
     {
         return $this->innerBackend->remove($entryIdentifier);
     }
@@ -68,7 +68,7 @@ class BunnyPurgingBackend implements BackendInterface, TaggableBackendInterface
         $this->innerBackend->collectGarbage();
     }
 
-    public function flushByTag($tag): void
+    public function flushByTag(string $tag): void
     {
         $this->flushByTags([$tag]);
     }
@@ -79,7 +79,7 @@ class BunnyPurgingBackend implements BackendInterface, TaggableBackendInterface
         $this->purgeBunny($tags);
     }
 
-    public function findIdentifiersByTag($tag)
+    public function findIdentifiersByTag(string $tag): array
     {
         return $this->innerBackend->findIdentifiersByTag($tag);
     }
