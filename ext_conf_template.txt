@@ -1,0 +1,5 @@
+# cat=basic/enable/10; type=boolean; label=Enable active cache invalidation: If disabled, no purge requests are sent to the Bunny.net API (the CDN-Tag response header is still set).
+enabled = 1
+
+# cat=basic/enable/20; type=string; label=Bunny.net API Access Key: Used to authenticate purge requests against the Bunny.net API (Account Settings > API in the Bunny.net dashboard).
+apiKey =

@@ -1,0 +1,15 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+    public: false
+
+  Mfd\BunnyCdn\:
+    resource: '../Classes/'
+    exclude:
+      # Cache backends are constructed directly by TYPO3\CMS\Core\Cache\CacheManager
+      # via a plain `new`, never through the DI container.
+      - '../Classes/Cache/Backend/*'
+
+  Mfd\BunnyCdn\Service\BunnyPurgeService:
+    public: true

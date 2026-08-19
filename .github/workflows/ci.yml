@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: Build/Scripts/runTests.sh -p 8.2 -s composerInstall
+      - run: Build/Scripts/runTests.sh -p 8.2 -s lintPhp
+      - run: Build/Scripts/runTests.sh -p 8.2 -s lintYaml
+      - run: Build/Scripts/runTests.sh -p 8.2 -s cgl -n
+
+  tests:
+    name: "Unit tests (PHP ${{ matrix.php-version }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['8.2', '8.3', '8.4', '8.5']
+    steps:
+      - uses: actions/checkout@v4
+      - run: Build/Scripts/runTests.sh -p ${{ matrix.php-version }} -s composerInstall
+      - run: Build/Scripts/runTests.sh -p ${{ matrix.php-version }} -s unit
+
+  tests-lowest:
+    name: "Unit tests (PHP 8.2, lowest deps)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: Build/Scripts/runTests.sh -p 8.2 -s composerInstallMin
+      - run: Build/Scripts/runTests.sh -p 8.2 -s unit
