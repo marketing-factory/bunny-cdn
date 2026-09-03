@@ -4,10 +4,9 @@ declare(strict_types=1);
 
 namespace Mfd\BunnyCdn\Http;
 
-use GuzzleHttp\Client;
-use GuzzleHttp\ClientInterface;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
+use TYPO3\CMS\Core\Http\RequestFactory;
 
 /**
  * Thin wrapper around the Bunny.net Pull Zone purge API.
@@ -20,12 +19,7 @@ class BunnyApiClient implements LoggerAwareInterface
 
     private const API_BASE_URL = 'https://api.bunny.net';
 
-    private readonly ClientInterface $client;
-
-    public function __construct(?ClientInterface $client = null)
-    {
-        $this->client = $client ?? new Client(['timeout' => 5]);
-    }
+    public function __construct(private readonly RequestFactory $requestFactory) {}
 
     public function purgeUrl(string $accessKey, int $pullZoneId, string $url): void
     {
@@ -39,12 +33,17 @@ class BunnyApiClient implements LoggerAwareInterface
 
     private function purge(string $accessKey, int $pullZoneId, array $body): void
     {
-        $this->client->request('POST', self::API_BASE_URL . '/pullzone/' . $pullZoneId . '/purgeCache', [
-            'headers' => [
-                'AccessKey' => $accessKey,
-                'Content-Type' => 'application/json',
+        $this->requestFactory->request(
+            self::API_BASE_URL . '/pullzone/' . $pullZoneId . '/purgeCache',
+            'POST',
+            [
+                'headers' => [
+                    'AccessKey' => $accessKey,
+                    'Content-Type' => 'application/json',
+                ],
+                'json' => $body,
+                'timeout' => 5,
             ],
-            'json' => $body,
-        ]);
+        );
     }
 }
