@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Mfd\BunnyCdn\Service;
 
 use Mfd\BunnyCdn\Http\BunnyApiClient;
+use Mfd\BunnyCdn\Message\RetryPurgeTagMessage;
+use Mfd\BunnyCdn\Message\RetryPurgeUrlMessage;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
+use Symfony\Component\Messenger\MessageBusInterface;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Routing\RouterInterface;
 use TYPO3\CMS\Core\Site\Entity\Site;
@@ -22,11 +25,13 @@ class BunnyCdnService implements LoggerAwareInterface
     use LoggerAwareTrait;
 
     private const PAGE_TAG_PATTERN = '/^pageId_(\d+)$/';
+    private const RATE_LIMITED_STATUS_CODE = 429;
 
     public function __construct(
         private readonly BunnyApiClient $client,
         private readonly SiteFinder $siteFinder,
         private readonly ExtensionConfiguration $extensionConfiguration,
+        private readonly MessageBusInterface $messageBus,
     ) {}
 
     /**
@@ -64,6 +69,67 @@ class BunnyCdnService implements LoggerAwareInterface
         return $this->isEnabled()
             && $this->getAccessKey() !== ''
             && $this->getPullZoneIdForSite($site) !== null;
+    }
+
+    /**
+     * Retries a single tag purge that was rate-limited (429) the first time
+     * around. Called by RetryPurgeMessageHandler — never reschedules itself
+     * on a repeated 429, just logs it, so a slow API can't turn into an
+     * infinite retry loop.
+     */
+    public function retryPurgeTag(int $pullZoneId, string $tag): void
+    {
+        $accessKey = $this->getAccessKey();
+        if ($accessKey === '') {
+            return;
+        }
+
+        try {
+            $response = $this->client->purgeTag($accessKey, $pullZoneId, $tag);
+        } catch (\Exception $exception) {
+            $this->logger?->error('Bunny CDN async tag purge retry failed', [
+                'pullZoneId' => $pullZoneId,
+                'tag' => $tag,
+                'exception' => $exception,
+            ]);
+            return;
+        }
+
+        if ($response->getStatusCode() >= 400) {
+            $this->logger?->error('Bunny CDN async tag purge retry failed', [
+                'pullZoneId' => $pullZoneId,
+                'tag' => $tag,
+                'statusCode' => $response->getStatusCode(),
+            ]);
+        }
+    }
+
+    /**
+     * @see retryPurgeTag()
+     */
+    public function retryPurgeUrl(string $url): void
+    {
+        $accessKey = $this->getAccessKey();
+        if ($accessKey === '') {
+            return;
+        }
+
+        try {
+            $response = $this->client->purgeUrl($accessKey, $url);
+        } catch (\Exception $exception) {
+            $this->logger?->error('Bunny CDN async URL purge retry failed', [
+                'url' => $url,
+                'exception' => $exception,
+            ]);
+            return;
+        }
+
+        if ($response->getStatusCode() >= 400) {
+            $this->logger?->error('Bunny CDN async URL purge retry failed', [
+                'url' => $url,
+                'statusCode' => $response->getStatusCode(),
+            ]);
+        }
     }
 
     private function purgePageUrls(string $accessKey, int $pageId): void
@@ -105,12 +171,30 @@ class BunnyCdnService implements LoggerAwareInterface
     private function purgeTagSafely(string $accessKey, int $pullZoneId, string $tag): void
     {
         try {
-            $this->client->purgeTag($accessKey, $pullZoneId, $tag);
+            $response = $this->client->purgeTag($accessKey, $pullZoneId, $tag);
         } catch (\Exception $exception) {
             $this->logger?->error('Bunny CDN tag purge failed', [
                 'pullZoneId' => $pullZoneId,
                 'tag' => $tag,
                 'exception' => $exception,
+            ]);
+            return;
+        }
+
+        if ($response->getStatusCode() === self::RATE_LIMITED_STATUS_CODE) {
+            $this->scheduleRetry(
+                new RetryPurgeTagMessage($pullZoneId, $tag),
+                'tag',
+                ['pullZoneId' => $pullZoneId, 'tag' => $tag],
+            );
+            return;
+        }
+
+        if ($response->getStatusCode() >= 400) {
+            $this->logger?->error('Bunny CDN tag purge failed', [
+                'pullZoneId' => $pullZoneId,
+                'tag' => $tag,
+                'statusCode' => $response->getStatusCode(),
             ]);
         }
     }
@@ -118,14 +202,46 @@ class BunnyCdnService implements LoggerAwareInterface
     private function purgeUrlSafely(string $accessKey, int $pullZoneId, string $url): void
     {
         try {
-            $this->client->purgeUrl($accessKey, $url);
+            $response = $this->client->purgeUrl($accessKey, $url);
         } catch (\Exception $exception) {
             $this->logger?->error('Bunny CDN URL purge failed', [
                 'pullZoneId' => $pullZoneId,
                 'url' => $url,
                 'exception' => $exception,
             ]);
+            return;
         }
+
+        if ($response->getStatusCode() === self::RATE_LIMITED_STATUS_CODE) {
+            $this->scheduleRetry(
+                new RetryPurgeUrlMessage($url),
+                'URL',
+                ['pullZoneId' => $pullZoneId, 'url' => $url],
+            );
+            return;
+        }
+
+        if ($response->getStatusCode() >= 400) {
+            $this->logger?->error('Bunny CDN URL purge failed', [
+                'pullZoneId' => $pullZoneId,
+                'url' => $url,
+                'statusCode' => $response->getStatusCode(),
+            ]);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $logContext
+     */
+    private function scheduleRetry(object $message, string $kind, array $logContext): void
+    {
+        if (!$this->asyncRetryEnabled()) {
+            $this->logger?->warning("Bunny CDN {$kind} purge rate-limited (429), dropped — enable asyncRetryEnabled to retry it", $logContext);
+            return;
+        }
+
+        $this->messageBus->dispatch($message);
+        $this->logger?->info("Bunny CDN {$kind} purge rate-limited (429), scheduled for async retry", $logContext);
     }
 
     private function isEnabled(): bool
@@ -143,6 +259,15 @@ class BunnyCdnService implements LoggerAwareInterface
             return (string)$this->extensionConfiguration->get('bunny_cdn', 'apiKey');
         } catch (\Exception) {
             return '';
+        }
+    }
+
+    private function asyncRetryEnabled(): bool
+    {
+        try {
+            return (bool)$this->extensionConfiguration->get('bunny_cdn', 'asyncRetryEnabled');
+        } catch (\Exception) {
+            return false;
         }
     }
 

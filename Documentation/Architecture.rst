@@ -15,6 +15,36 @@ content elements, custom TypoScript ``cache.tags``) for two things:
 See :ref:`decision 0001 <decision-0001>` for why invalidation is triggered
 from the cache backend rather than a DataHandler hook.
 
+Rate-limit retry
+==================
+
+``Mfd\BunnyCdn\Http\BunnyApiClient`` disables Guzzle's ``http_errors``, so a
+non-2xx response comes back as a normal ``ResponseInterface`` instead of an
+exception — ``BunnyCdnService`` branches on the status code itself rather
+than sniffing Guzzle exception types.
+
+On a ``429`` (rate limited), and only when the ``asyncRetryEnabled``
+Extension Configuration switch is on, ``BunnyCdnService::scheduleRetry()``
+dispatches a ``Mfd\BunnyCdn\Message\RetryPurgeTagMessage`` or
+``RetryPurgeUrlMessage`` via the injected ``MessageBusInterface``. Both
+carry only what's needed to redo the call (pull zone ID + tag, or just the
+URL) — never the API key, which the handler re-reads from Extension
+Configuration itself, the same way ``BunnyCdnService`` does.
+
+``ext_localconf.php`` routes both message classes to the ``doctrine``
+transport TYPO3 core already wires up (a ``sys_messenger_messages``
+database table) — routing is registered unconditionally; whether a message
+ever gets dispatched onto it is what the config switch actually gates. A
+``messenger:consume doctrine`` worker eventually picks up the message and
+``Mfd\BunnyCdn\MessageHandler\RetryPurgeMessageHandler`` (registered via the
+``#[AsMessageHandler]`` attribute) calls back into
+``BunnyCdnService::retryPurgeTag()`` / ``retryPurgeUrl()`` for the actual
+retry. Those don't reschedule on a repeated 429 — just log it — since
+nothing in this extension implements Symfony's exponential-backoff retry
+strategy (TYPO3 core doesn't wire up
+``SendFailedMessageForRetryListener`` either), so an unbounded requeue loop
+is exactly what letting the handler reschedule itself would risk.
+
 Activation state
 ==================
 

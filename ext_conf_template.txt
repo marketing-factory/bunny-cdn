@@ -3,3 +3,6 @@ enabled = 1
 
 # cat=basic/enable/20; type=string; label=Bunny.net API Access Key: Used to authenticate purge requests against the Bunny.net API (Account Settings > API in the Bunny.net dashboard).
 apiKey =
+
+# cat=basic/enable/30; type=boolean; label=Retry rate-limited purges asynchronously: If Bunny answers a purge request with 429 (rate limited), schedule it as a Symfony Messenger message and retry it once, off the request path. Requires a "messenger:consume doctrine" worker process to actually be running somewhere — leave disabled if you don't run one; rate-limited purges are then just dropped and logged, as before.
+asyncRetryEnabled = 0

@@ -7,6 +7,15 @@ For administrators
 Installation and configuration (enable switch, API key, Pull Zone ID) are
 covered in the README in the repository root.
 
+Async retry on rate limiting
+==============================
+
+See the README's "Async retry on rate limiting" section. Off by default;
+turning on ``asyncRetryEnabled`` only helps if a ``messenger:consume
+doctrine`` worker actually runs somewhere — without one, rate-limited
+purges queue up in ``sys_messenger_messages`` and are never retried, so
+leave it off unless you're also running that worker.
+
 Checking activation state
 ==========================
 
@@ -35,4 +44,6 @@ Troubleshooting
 Purge failures never block editors from saving — they're logged instead, via
 TYPO3's regular logging (``Mfd\BunnyCdn\...`` classes). Check there first if
 content doesn't seem to invalidate: most causes are a wrong/expired API key,
-a missing or wrong Pull Zone ID on a site, or Bunny being unreachable.
+a missing or wrong Pull Zone ID on a site, Bunny being unreachable, or Bunny
+rate-limiting purge requests (``429``) — see "Async retry on rate limiting"
+above.

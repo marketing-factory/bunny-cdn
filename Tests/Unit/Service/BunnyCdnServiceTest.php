@@ -6,10 +6,15 @@ namespace Mfd\BunnyCdn\Tests\Unit\Service;
 
 use GuzzleHttp\Psr7\Uri;
 use Mfd\BunnyCdn\Http\BunnyApiClient;
+use Mfd\BunnyCdn\Message\RetryPurgeTagMessage;
+use Mfd\BunnyCdn\Message\RetryPurgeUrlMessage;
 use Mfd\BunnyCdn\Service\BunnyCdnService;
 use Psr\Http\Message\UriInterface;
+use Symfony\Component\Messenger\Envelope;
+use Symfony\Component\Messenger\MessageBusInterface;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Exception\SiteNotFoundException;
+use TYPO3\CMS\Core\Http\Response;
 use TYPO3\CMS\Core\Routing\PageRouter;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\SiteFinder;
@@ -18,15 +23,26 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class BunnyCdnServiceTest extends UnitTestCase
 {
-    private function createExtensionConfiguration(string $apiKey, bool $enabled = true): ExtensionConfiguration
+    private function createExtensionConfiguration(string $apiKey, bool $enabled = true, bool $asyncRetryEnabled = false): ExtensionConfiguration
     {
         $extensionConfiguration = $this->createMock(ExtensionConfiguration::class);
         $extensionConfiguration->method('get')->willReturnMap([
             ['bunny_cdn', 'enabled', $enabled],
             ['bunny_cdn', 'apiKey', $apiKey],
+            ['bunny_cdn', 'asyncRetryEnabled', $asyncRetryEnabled],
         ]);
 
         return $extensionConfiguration;
+    }
+
+    private function createMessageBus(): MessageBusInterface&\PHPUnit\Framework\MockObject\MockObject
+    {
+        $messageBus = $this->createMock(MessageBusInterface::class);
+        $messageBus->method('dispatch')->willReturnCallback(
+            static fn(object $message): Envelope => new Envelope($message),
+        );
+
+        return $messageBus;
     }
 
     private function createSite(string $identifier, int $rootPageId, int $pullZoneId, array $languageIds = [0]): Site
@@ -75,7 +91,7 @@ final class BunnyCdnServiceTest extends UnitTestCase
         $siteFinder = $this->createMock(SiteFinder::class);
         $siteFinder->expects($this->never())->method(self::anything());
 
-        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key', false));
+        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key', false), $this->createMessageBus());
         $subject->purgeByTags(['pageId_5']);
     }
 
@@ -86,7 +102,7 @@ final class BunnyCdnServiceTest extends UnitTestCase
         $siteFinder = $this->createMock(SiteFinder::class);
         $siteFinder->expects($this->never())->method(self::anything());
 
-        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration(''));
+        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration(''), $this->createMessageBus());
         $subject->purgeByTags(['pageId_5']);
     }
 
@@ -97,7 +113,7 @@ final class BunnyCdnServiceTest extends UnitTestCase
         $siteFinder = $this->createMock(SiteFinder::class);
         $siteFinder->method('getAllSites')->willReturn([]);
 
-        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key'));
+        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key'), $this->createMessageBus());
         $subject->purgeByTags(['pageId_5']);
     }
 
@@ -108,14 +124,15 @@ final class BunnyCdnServiceTest extends UnitTestCase
 
         $client = $this->createMock(BunnyApiClient::class);
         $client->expects($this->exactly(2))->method('purgeTag')
-            ->with('secret-key', self::logicalOr(42, 99), 'tt_content_7');
+            ->with('secret-key', self::logicalOr(42, 99), 'tt_content_7')
+            ->willReturn(new Response());
         $client->expects($this->never())->method('purgeUrl');
 
         $siteFinder = $this->createMock(SiteFinder::class);
         $siteFinder->method('getAllSites')->willReturn([$siteDe, $siteCom]);
         $siteFinder->expects($this->never())->method('getSiteByPageId');
 
-        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key'));
+        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key'), $this->createMessageBus());
         $subject->purgeByTags(['tt_content_7']);
     }
 
@@ -124,9 +141,11 @@ final class BunnyCdnServiceTest extends UnitTestCase
         $site = $this->createSite('de', 1, 42, [0, 1]);
 
         $client = $this->createMock(BunnyApiClient::class);
-        $client->expects($this->once())->method('purgeTag')->with('secret-key', 42, 'pageId_5');
+        $client->expects($this->once())->method('purgeTag')->with('secret-key', 42, 'pageId_5')
+            ->willReturn(new Response());
         $client->expects($this->exactly(2))->method('purgeUrl')
-            ->with('secret-key', 'https://de.example.com/page-5');
+            ->with('secret-key', 'https://de.example.com/page-5')
+            ->willReturn(new Response());
 
         $siteFinder = $this->createMock(SiteFinder::class);
         $siteFinder->method('getAllSites')->willReturn([$site]);
@@ -134,7 +153,7 @@ final class BunnyCdnServiceTest extends UnitTestCase
 
         $this->fakeRouterGenerating(new Uri('https://de.example.com/page-5'));
 
-        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key'));
+        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key'), $this->createMessageBus());
         $subject->purgeByTags(['pageId_5']);
     }
 
@@ -143,7 +162,8 @@ final class BunnyCdnServiceTest extends UnitTestCase
         $site = $this->createSite('de', 1, 42);
 
         $client = $this->createMock(BunnyApiClient::class);
-        $client->expects($this->once())->method('purgeTag')->with('secret-key', 42, 'pageId_999');
+        $client->expects($this->once())->method('purgeTag')->with('secret-key', 42, 'pageId_999')
+            ->willReturn(new Response());
         $client->expects($this->never())->method('purgeUrl');
 
         $siteFinder = $this->createMock(SiteFinder::class);
@@ -151,7 +171,7 @@ final class BunnyCdnServiceTest extends UnitTestCase
         $siteFinder->method('getSiteByPageId')->with(999)
             ->willThrowException(new SiteNotFoundException('no site', 1234));
 
-        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key'));
+        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key'), $this->createMessageBus());
         $subject->purgeByTags(['pageId_999']);
     }
 
@@ -166,8 +186,90 @@ final class BunnyCdnServiceTest extends UnitTestCase
         $siteFinder->method('getAllSites')->willReturn([$site]);
         $siteFinder->expects($this->never())->method('getSiteByPageId');
 
-        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key'));
+        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key'), $this->createMessageBus());
         $subject->purgeByTags(['tt_content_7']);
+    }
+
+    public function testPurgeByTagsSchedulesRetryWhenTagPurgeIsRateLimitedAndAsyncRetryEnabled(): void
+    {
+        $site = $this->createSite('de', 1, 42);
+
+        $client = $this->createMock(BunnyApiClient::class);
+        $client->method('purgeTag')->willReturn(new Response(statusCode: 429));
+
+        $siteFinder = $this->createMock(SiteFinder::class);
+        $siteFinder->method('getAllSites')->willReturn([$site]);
+        $siteFinder->expects($this->never())->method('getSiteByPageId');
+
+        $message = new RetryPurgeTagMessage(42, 'tt_content_7');
+        $messageBus = $this->createMock(MessageBusInterface::class);
+        $messageBus->expects($this->once())->method('dispatch')
+            ->with(self::equalTo($message))
+            ->willReturn(new Envelope($message));
+
+        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key', asyncRetryEnabled: true), $messageBus);
+        $subject->purgeByTags(['tt_content_7']);
+    }
+
+    public function testPurgeByTagsDropsRateLimitedTagPurgeWhenAsyncRetryDisabled(): void
+    {
+        $site = $this->createSite('de', 1, 42);
+
+        $client = $this->createMock(BunnyApiClient::class);
+        $client->method('purgeTag')->willReturn(new Response(statusCode: 429));
+
+        $siteFinder = $this->createMock(SiteFinder::class);
+        $siteFinder->method('getAllSites')->willReturn([$site]);
+
+        $messageBus = $this->createMessageBus();
+        $messageBus->expects($this->never())->method('dispatch');
+
+        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key', asyncRetryEnabled: false), $messageBus);
+        $subject->purgeByTags(['tt_content_7']);
+    }
+
+    public function testPurgeByTagsSchedulesRetryWhenUrlPurgeIsRateLimitedAndAsyncRetryEnabled(): void
+    {
+        $site = $this->createSite('de', 1, 42);
+
+        $client = $this->createMock(BunnyApiClient::class);
+        $client->method('purgeTag')->willReturn(new Response());
+        $client->method('purgeUrl')->willReturn(new Response(statusCode: 429));
+
+        $siteFinder = $this->createMock(SiteFinder::class);
+        $siteFinder->method('getAllSites')->willReturn([$site]);
+        $siteFinder->method('getSiteByPageId')->with(5)->willReturn($site);
+
+        $this->fakeRouterGenerating(new Uri('https://de.example.com/page-5'));
+
+        $message = new RetryPurgeUrlMessage('https://de.example.com/page-5');
+        $messageBus = $this->createMock(MessageBusInterface::class);
+        $messageBus->expects($this->once())->method('dispatch')
+            ->with(self::equalTo($message))
+            ->willReturn(new Envelope($message));
+
+        $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key', asyncRetryEnabled: true), $messageBus);
+        $subject->purgeByTags(['pageId_5']);
+    }
+
+    public function testRetryPurgeTagCallsClientAgain(): void
+    {
+        $client = $this->createMock(BunnyApiClient::class);
+        $client->expects($this->once())->method('purgeTag')->with('secret-key', 42, 'tt_content_7')
+            ->willReturn(new Response());
+
+        $subject = new BunnyCdnService($client, $this->createMock(SiteFinder::class), $this->createExtensionConfiguration('secret-key'), $this->createMessageBus());
+        $subject->retryPurgeTag(42, 'tt_content_7');
+    }
+
+    public function testRetryPurgeUrlCallsClientAgain(): void
+    {
+        $client = $this->createMock(BunnyApiClient::class);
+        $client->expects($this->once())->method('purgeUrl')->with('secret-key', 'https://de.example.com/page-5')
+            ->willReturn(new Response());
+
+        $subject = new BunnyCdnService($client, $this->createMock(SiteFinder::class), $this->createExtensionConfiguration('secret-key'), $this->createMessageBus());
+        $subject->retryPurgeUrl('https://de.example.com/page-5');
     }
 
     public function testIsActiveForSiteIsFalseWhenDisabled(): void
@@ -177,6 +279,7 @@ final class BunnyCdnServiceTest extends UnitTestCase
             $this->createMock(BunnyApiClient::class),
             $this->createMock(SiteFinder::class),
             $this->createExtensionConfiguration('secret-key', false),
+            $this->createMessageBus(),
         );
 
         self::assertFalse($subject->isActiveForSite($site));
@@ -189,6 +292,7 @@ final class BunnyCdnServiceTest extends UnitTestCase
             $this->createMock(BunnyApiClient::class),
             $this->createMock(SiteFinder::class),
             $this->createExtensionConfiguration(''),
+            $this->createMessageBus(),
         );
 
         self::assertFalse($subject->isActiveForSite($site));
@@ -201,6 +305,7 @@ final class BunnyCdnServiceTest extends UnitTestCase
             $this->createMock(BunnyApiClient::class),
             $this->createMock(SiteFinder::class),
             $this->createExtensionConfiguration('secret-key'),
+            $this->createMessageBus(),
         );
 
         self::assertFalse($subject->isActiveForSite($site));
@@ -213,6 +318,7 @@ final class BunnyCdnServiceTest extends UnitTestCase
             $this->createMock(BunnyApiClient::class),
             $this->createMock(SiteFinder::class),
             $this->createExtensionConfiguration('secret-key'),
+            $this->createMessageBus(),
         );
 
         self::assertTrue($subject->isActiveForSite($site));

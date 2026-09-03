@@ -74,6 +74,32 @@ bunny_pull_zone_id: 12345
 
 A site without a Pull Zone ID configured is skipped for purging.
 
+### Async retry on rate limiting (opt-in)
+
+Extension Configuration `asyncRetryEnabled`, **off by default**. Bunny's
+purge API rate-limits (`429`); by default a rate-limited purge is just
+logged and dropped, same as any other failure.
+
+Turning this on instead schedules it as a
+[Symfony Messenger](https://docs.typo3.org/permalink/typo3/cms-core:messenger)
+message and retries it once, off the request path. It's opt-in because that
+retry only ever happens if something is actually consuming the queue — a
+`messenger:consume doctrine` worker process (cron, systemd timer, supervisor,
+...). If your hosting doesn't run one, leave this off: the message would just
+sit in the `sys_messenger_messages` table forever.
+
+```php
+$GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['bunny_cdn']['asyncRetryEnabled'] = true;
+```
+
+```
+vendor/bin/typo3 messenger:consume doctrine
+```
+
+A retry that's rate-limited *again* is logged and dropped — it doesn't
+reschedule itself, so a persistently rate-limited API can't turn into an
+unbounded retry loop.
+
 ## Checking activation state
 
 `Mfd\BunnyCdn\Service\BunnyCdnService::isActiveForSite()` and the
