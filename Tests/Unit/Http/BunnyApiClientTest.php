@@ -16,21 +16,23 @@ final class BunnyApiClientTest extends UnitTestCase
         $requestFactory = $this->createMock(RequestFactory::class);
         $requestFactory->expects($this->once())->method('request')
             ->with(
-                'https://api.bunny.net/pullzone/42/purgeCache',
+                'https://api.bunny.net/purge',
                 'POST',
                 [
                     'headers' => [
                         'AccessKey' => 'secret-key',
-                        'Content-Type' => 'application/json',
                     ],
-                    'json' => ['Url' => 'https://example.com/foo'],
+                    'query' => [
+                        'url' => 'https://example.com/foo',
+                        'async' => 'true',
+                    ],
                     'timeout' => 5,
                 ],
             )
             ->willReturn(new Response());
 
         $subject = new BunnyApiClient($requestFactory);
-        $subject->purgeUrl('secret-key', 42, 'https://example.com/foo');
+        $subject->purgeUrl('secret-key', 'https://example.com/foo');
     }
 
     public function testPurgeTagSendsExpectedRequest(): void

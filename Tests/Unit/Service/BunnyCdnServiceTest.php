@@ -126,7 +126,7 @@ final class BunnyCdnServiceTest extends UnitTestCase
         $client = $this->createMock(BunnyApiClient::class);
         $client->expects($this->once())->method('purgeTag')->with('secret-key', 42, 'pageId_5');
         $client->expects($this->exactly(2))->method('purgeUrl')
-            ->with('secret-key', 42, 'https://de.example.com/page-5');
+            ->with('secret-key', 'https://de.example.com/page-5');
 
         $siteFinder = $this->createMock(SiteFinder::class);
         $siteFinder->method('getAllSites')->willReturn([$site]);

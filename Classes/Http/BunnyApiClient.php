@@ -9,9 +9,10 @@ use Psr\Log\LoggerAwareTrait;
 use TYPO3\CMS\Core\Http\RequestFactory;
 
 /**
- * Thin wrapper around the Bunny.net Pull Zone purge API.
+ * Thin wrapper around the Bunny.net purge API.
  *
- * @see https://docs.bunny.net/reference/pullzonepublic_purgecache
+ * @see https://docs.bunny.net/api-reference/core/purge/purge-url
+ * @see https://docs.bunny.net/api-reference/core/pull-zone/purge-cache
  */
 class BunnyApiClient implements LoggerAwareInterface
 {
@@ -21,17 +22,31 @@ class BunnyApiClient implements LoggerAwareInterface
 
     public function __construct(private readonly RequestFactory $requestFactory) {}
 
-    public function purgeUrl(string $accessKey, int $pullZoneId, string $url): void
+    /**
+     * Purges a URL across every pull zone serving it. Dedicated endpoint,
+     * separate from the pull-zone-scoped purgeCache one below — no pull
+     * zone ID, and purged asynchronously so this doesn't block on Bunny's
+     * purge logic completing.
+     */
+    public function purgeUrl(string $accessKey, string $url): void
     {
-        $this->purge($accessKey, $pullZoneId, ['Url' => $url]);
+        $this->requestFactory->request(
+            self::API_BASE_URL . '/purge',
+            'POST',
+            [
+                'headers' => [
+                    'AccessKey' => $accessKey,
+                ],
+                'query' => [
+                    'url' => $url,
+                    'async' => 'true',
+                ],
+                'timeout' => 5,
+            ],
+        );
     }
 
     public function purgeTag(string $accessKey, int $pullZoneId, string $tag): void
-    {
-        $this->purge($accessKey, $pullZoneId, ['CacheTag' => $tag]);
-    }
-
-    private function purge(string $accessKey, int $pullZoneId, array $body): void
     {
         $this->requestFactory->request(
             self::API_BASE_URL . '/pullzone/' . $pullZoneId . '/purgeCache',
@@ -41,7 +56,7 @@ class BunnyApiClient implements LoggerAwareInterface
                     'AccessKey' => $accessKey,
                     'Content-Type' => 'application/json',
                 ],
-                'json' => $body,
+                'json' => ['CacheTag' => $tag],
                 'timeout' => 5,
             ],
         );

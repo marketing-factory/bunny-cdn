@@ -118,7 +118,7 @@ class BunnyCdnService implements LoggerAwareInterface
     private function purgeUrlSafely(string $accessKey, int $pullZoneId, string $url): void
     {
         try {
-            $this->client->purgeUrl($accessKey, $pullZoneId, $url);
+            $this->client->purgeUrl($accessKey, $url);
         } catch (\Exception $exception) {
             $this->logger?->error('Bunny CDN URL purge failed', [
                 'pullZoneId' => $pullZoneId,
