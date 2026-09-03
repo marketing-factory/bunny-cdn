@@ -11,5 +11,11 @@ services:
       # via a plain `new`, never through the DI container.
       - '../Classes/Cache/Backend/*'
 
-  Mfd\BunnyCdn\Service\BunnyPurgeService:
+  Mfd\BunnyCdn\Service\BunnyCdnService:
+    public: true
+
+  Mfd\BunnyCdn\ViewHelpers\IsActiveViewHelper:
+    public: true
+
+  Mfd\BunnyCdn\ViewHelpers\IsViaBunnyViewHelper:
     public: true

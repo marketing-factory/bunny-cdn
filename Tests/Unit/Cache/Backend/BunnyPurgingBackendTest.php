@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Mfd\BunnyCdn\Tests\Unit\Cache\Backend;
 
 use Mfd\BunnyCdn\Cache\Backend\BunnyPurgingBackend;
-use Mfd\BunnyCdn\Service\BunnyPurgeService;
+use Mfd\BunnyCdn\Service\BunnyCdnService;
 use TYPO3\CMS\Core\Cache\Backend\TransientMemoryBackend;
 use TYPO3\CMS\Core\Cache\Frontend\VariableFrontend;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -32,9 +32,9 @@ final class BunnyPurgingBackendTest extends UnitTestCase
         $subject = $this->createSubject();
         $subject->set('entry', 'payload', ['pageId_5']);
 
-        $purgeService = $this->createMock(BunnyPurgeService::class);
+        $purgeService = $this->createMock(BunnyCdnService::class);
         $purgeService->expects($this->once())->method('purgeByTags')->with(['pageId_5']);
-        GeneralUtility::addInstance(BunnyPurgeService::class, $purgeService);
+        GeneralUtility::addInstance(BunnyCdnService::class, $purgeService);
 
         $subject->flushByTags(['pageId_5']);
 
@@ -45,9 +45,9 @@ final class BunnyPurgingBackendTest extends UnitTestCase
     {
         $subject = $this->createSubject();
 
-        $purgeService = $this->createMock(BunnyPurgeService::class);
+        $purgeService = $this->createMock(BunnyCdnService::class);
         $purgeService->expects($this->once())->method('purgeByTags')->with(['tt_content_42']);
-        GeneralUtility::addInstance(BunnyPurgeService::class, $purgeService);
+        GeneralUtility::addInstance(BunnyCdnService::class, $purgeService);
 
         $subject->flushByTag('tt_content_42');
     }
@@ -57,9 +57,9 @@ final class BunnyPurgingBackendTest extends UnitTestCase
         $subject = $this->createSubject();
         $subject->set('entry', 'payload', ['pageId_6']);
 
-        $purgeService = $this->createMock(BunnyPurgeService::class);
+        $purgeService = $this->createMock(BunnyCdnService::class);
         $purgeService->method('purgeByTags')->willThrowException(new \RuntimeException('Bunny API is down'));
-        GeneralUtility::addInstance(BunnyPurgeService::class, $purgeService);
+        GeneralUtility::addInstance(BunnyCdnService::class, $purgeService);
 
         $subject->flushByTags(['pageId_6']);
 

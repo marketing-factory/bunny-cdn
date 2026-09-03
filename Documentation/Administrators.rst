@@ -7,6 +7,19 @@ For administrators
 Installation and configuration (enable switch, API key, Pull Zone ID) are
 covered in the README in the repository root.
 
+Checking activation state
+==========================
+
+See the README's "Checking activation state" section for full examples.
+Short version: ``active`` (is Bunny configured for this site) and
+``viaBunny`` (did *this* request actually come through Bunny's edge) are
+both available as:
+
+*  PHP: ``$context->getPropertyFromAspect('bunnyCdn', 'active')``
+*  TypoScript: ``data = context:bunnyCdn:active``
+*  Fluid: ``{bunny:isActive()}`` / ``{bunny:isViaBunny()}`` (namespace
+   ``xmlns:bunny="http://typo3.org/ns/Mfd/BunnyCdn/ViewHelpers"``)
+
 Custom cache tags
 ==================
 

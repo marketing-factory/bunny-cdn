@@ -3,7 +3,8 @@
 Active [Bunny CDN](https://bunny.net/) cache invalidation for TYPO3 13. Purges
 Bunny's edge cache whenever an editor changes content, by page URL and by
 cache tag, and tags outgoing responses with Bunny's `CDN-Tag` header so those
-tag-based purges actually match something.
+tag-based purges actually match something. Also exposes whether Bunny is
+active for the current site/request to TypoScript, Fluid, and PHP.
 
 ## How it works
 
@@ -72,6 +73,49 @@ bunny_pull_zone_id: 12345
 ```
 
 A site without a Pull Zone ID configured is skipped for purging.
+
+## Checking activation state
+
+`Mfd\BunnyCdn\Service\BunnyCdnService::isActiveForSite()` and the
+`bunnyCdn` Context aspect it feeds both answer two different questions:
+
+*  **`active`** — config: is Bunny CDN enabled *and* fully configured
+   (API key + Pull Zone ID) for the current site.
+*  **`viaBunny`** — observed: did *this specific request* actually arrive
+   through Bunny's edge (detected via the `CDN-ServerId` header Bunny adds
+   to every proxied request). Useful e.g. behind a staging domain that
+   bypasses the CDN even though it's `active`.
+
+Both, plus a handful of other `CDN-*` request headers Bunny sends
+(`CDN-RequestId`, `CDN-RequestCountryCode`, `CDN-RequestStateCode`,
+`CDN-MobileDevice`, `CDN-ConnectionId`, `CDN-Host`, `CDN-ServerZone`), are
+set on the `bunnyCdn` [Context aspect](https://docs.typo3.org/permalink/typo3/cms-core:context-api)
+by `Mfd\BunnyCdn\Middleware\BunnyCdnAspectMiddleware`, so they're reachable
+from anywhere:
+
+**PHP:**
+
+```php
+$context->getPropertyFromAspect('bunnyCdn', 'active');
+$context->getPropertyFromAspect('bunnyCdn', 'requestCountryCode');
+```
+
+**TypoScript**, via the `context` data type:
+
+```typoscript
+lib.bunnyCdnActive = TEXT
+lib.bunnyCdnActive.data = context:bunnyCdn:active
+```
+
+**Fluid**, via the two dedicated ViewHelpers (only `active`/`viaBunny` get
+one — pull anything else through the TypoScript bridge above with
+`<f:cObject typoscriptObjectPath="lib.bunnyCdnActive" />`):
+
+```html
+<html xmlns:bunny="http://typo3.org/ns/Mfd/BunnyCdn/ViewHelpers">
+<f:if condition="{bunny:isActive()}">CDN configured for this site.</f:if>
+<f:if condition="{bunny:isViaBunny()}">This request came through Bunny.</f:if>
+```
 
 ## Testing
 

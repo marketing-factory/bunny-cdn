@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Mfd\BunnyCdn\Cache\Backend;
 
-use Mfd\BunnyCdn\Service\BunnyPurgeService;
+use Mfd\BunnyCdn\Service\BunnyCdnService;
 use TYPO3\CMS\Core\Cache\Backend\BackendInterface;
 use TYPO3\CMS\Core\Cache\Backend\TaggableBackendInterface;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
@@ -87,7 +87,7 @@ class BunnyPurgingBackend implements BackendInterface, TaggableBackendInterface
     private function purgeBunny(array $tags): void
     {
         try {
-            GeneralUtility::makeInstance(BunnyPurgeService::class)->purgeByTags($tags);
+            GeneralUtility::makeInstance(BunnyCdnService::class)->purgeByTags($tags);
         } catch (\Exception $exception) {
             GeneralUtility::makeInstance(LogManager::class)
                 ->getLogger(self::class)

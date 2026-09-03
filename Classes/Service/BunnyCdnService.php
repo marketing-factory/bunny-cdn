@@ -14,9 +14,10 @@ use TYPO3\CMS\Core\Site\SiteFinder;
 
 /**
  * Purges the Bunny CDN edge cache for whatever page/tag combination TYPO3 just
- * flushed from its own "pages" cache.
+ * flushed from its own "pages" cache, and answers whether Bunny CDN is active
+ * for a given site.
  */
-class BunnyPurgeService implements LoggerAwareInterface
+class BunnyCdnService implements LoggerAwareInterface
 {
     use LoggerAwareTrait;
 
@@ -56,6 +57,13 @@ class BunnyPurgeService implements LoggerAwareInterface
                 $this->purgePageUrls($accessKey, (int)$matches[1]);
             }
         }
+    }
+
+    public function isActiveForSite(Site $site): bool
+    {
+        return $this->isEnabled()
+            && $this->getAccessKey() !== ''
+            && $this->getPullZoneIdForSite($site) !== null;
     }
 
     private function purgePageUrls(string $accessKey, int $pageId): void
