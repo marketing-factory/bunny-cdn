@@ -82,11 +82,12 @@ logged and dropped, same as any other failure.
 
 Turning this on instead schedules it as a
 [Symfony Messenger](https://docs.typo3.org/permalink/typo3/cms-core:messenger)
-message and retries it once, off the request path. It's opt-in because that
-retry only ever happens if something is actually consuming the queue — a
-`messenger:consume doctrine` worker process (cron, systemd timer, supervisor,
-...). If your hosting doesn't run one, leave this off: the message would just
-sit in the `sys_messenger_messages` table forever.
+message, delayed 5 seconds (`DelayStamp`), and retries it off the request
+path. It's opt-in because that retry only ever happens if something is
+actually consuming the queue — a `messenger:consume doctrine` worker process
+(cron, systemd timer, supervisor, ...). If your hosting doesn't run one,
+leave this off: the message would just sit in the `sys_messenger_messages`
+table forever.
 
 ```php
 $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['bunny_cdn']['asyncRetryEnabled'] = true;
@@ -96,9 +97,10 @@ $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['bunny_cdn']['asyncRetryEnabled'] = tr
 vendor/bin/typo3 messenger:consume doctrine
 ```
 
-A retry that's rate-limited *again* is logged and dropped — it doesn't
-reschedule itself, so a persistently rate-limited API can't turn into an
-unbounded retry loop.
+A retry that's rate-limited *again* schedules another delayed retry the same
+way, 5 seconds out each time — there's no retry cap, so a Bunny outage that
+keeps answering 429 keeps this going indefinitely (at one request every 5s)
+until it succeeds or `asyncRetryEnabled` is turned off.
 
 ## Checking activation state
 

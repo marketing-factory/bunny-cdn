@@ -31,6 +31,12 @@ carry only what's needed to redo the call (pull zone ID + tag, or just the
 URL) — never the API key, which the handler re-reads from Extension
 Configuration itself, the same way ``BunnyCdnService`` does.
 
+``scheduleRetry()`` attaches a ``Symfony\Component\Messenger\Stamp\DelayStamp``
+(5000ms) to the dispatch, so the ``doctrine`` transport (which supports
+delayed delivery natively, via its ``available_at`` column) won't hand the
+message to a consumer until 5 seconds have passed — a purge landing during a
+burst doesn't just get hammered straight back at Bunny.
+
 ``ext_localconf.php`` routes both message classes to the ``doctrine``
 transport TYPO3 core already wires up (a ``sys_messenger_messages``
 database table) — routing is registered unconditionally; whether a message
@@ -38,12 +44,14 @@ ever gets dispatched onto it is what the config switch actually gates. A
 ``messenger:consume doctrine`` worker eventually picks up the message and
 ``Mfd\BunnyCdn\MessageHandler\RetryPurgeMessageHandler`` (registered via the
 ``#[AsMessageHandler]`` attribute) calls back into
-``BunnyCdnService::retryPurgeTag()`` / ``retryPurgeUrl()`` for the actual
-retry. Those don't reschedule on a repeated 429 — just log it — since
-nothing in this extension implements Symfony's exponential-backoff retry
-strategy (TYPO3 core doesn't wire up
-``SendFailedMessageForRetryListener`` either), so an unbounded requeue loop
-is exactly what letting the handler reschedule itself would risk.
+``BunnyCdnService::retryPurgeTag()`` / ``retryPurgeUrl()``, which delegate
+to the very same ``purgeTagSafely()`` / ``purgeUrlSafely()`` the original
+purge used — so a 429 on a retry schedules *another* delayed retry the same
+way. There's no retry cap or exponential backoff (nothing in this extension
+implements Symfony's own backoff retry strategy, and TYPO3 core doesn't
+wire up ``SendFailedMessageForRetryListener`` either) — a persistently
+rate-limited API just keeps this cycling every 5s until it succeeds or
+``asyncRetryEnabled`` is turned off.
 
 Activation state
 ==================

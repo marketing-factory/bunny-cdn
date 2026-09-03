@@ -12,6 +12,7 @@ use Mfd\BunnyCdn\Service\BunnyCdnService;
 use Psr\Http\Message\UriInterface;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\MessageBusInterface;
+use Symfony\Component\Messenger\Stamp\DelayStamp;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Exception\SiteNotFoundException;
 use TYPO3\CMS\Core\Http\Response;
@@ -204,7 +205,7 @@ final class BunnyCdnServiceTest extends UnitTestCase
         $message = new RetryPurgeTagMessage(42, 'tt_content_7');
         $messageBus = $this->createMock(MessageBusInterface::class);
         $messageBus->expects($this->once())->method('dispatch')
-            ->with(self::equalTo($message))
+            ->with(self::equalTo($message), self::equalTo([new DelayStamp(5000)]))
             ->willReturn(new Envelope($message));
 
         $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key', asyncRetryEnabled: true), $messageBus);
@@ -245,7 +246,7 @@ final class BunnyCdnServiceTest extends UnitTestCase
         $message = new RetryPurgeUrlMessage('https://de.example.com/page-5');
         $messageBus = $this->createMock(MessageBusInterface::class);
         $messageBus->expects($this->once())->method('dispatch')
-            ->with(self::equalTo($message))
+            ->with(self::equalTo($message), self::equalTo([new DelayStamp(5000)]))
             ->willReturn(new Envelope($message));
 
         $subject = new BunnyCdnService($client, $siteFinder, $this->createExtensionConfiguration('secret-key', asyncRetryEnabled: true), $messageBus);
@@ -269,6 +270,36 @@ final class BunnyCdnServiceTest extends UnitTestCase
             ->willReturn(new Response());
 
         $subject = new BunnyCdnService($client, $this->createMock(SiteFinder::class), $this->createExtensionConfiguration('secret-key'), $this->createMessageBus());
+        $subject->retryPurgeUrl('https://de.example.com/page-5');
+    }
+
+    public function testRetryPurgeTagSchedulesAnotherDelayedRetryWhenRateLimitedAgain(): void
+    {
+        $client = $this->createMock(BunnyApiClient::class);
+        $client->method('purgeTag')->willReturn(new Response(statusCode: 429));
+
+        $message = new RetryPurgeTagMessage(42, 'tt_content_7');
+        $messageBus = $this->createMock(MessageBusInterface::class);
+        $messageBus->expects($this->once())->method('dispatch')
+            ->with(self::equalTo($message), self::equalTo([new DelayStamp(5000)]))
+            ->willReturn(new Envelope($message));
+
+        $subject = new BunnyCdnService($client, $this->createMock(SiteFinder::class), $this->createExtensionConfiguration('secret-key', asyncRetryEnabled: true), $messageBus);
+        $subject->retryPurgeTag(42, 'tt_content_7');
+    }
+
+    public function testRetryPurgeUrlSchedulesAnotherDelayedRetryWhenRateLimitedAgain(): void
+    {
+        $client = $this->createMock(BunnyApiClient::class);
+        $client->method('purgeUrl')->willReturn(new Response(statusCode: 429));
+
+        $message = new RetryPurgeUrlMessage('https://de.example.com/page-5');
+        $messageBus = $this->createMock(MessageBusInterface::class);
+        $messageBus->expects($this->once())->method('dispatch')
+            ->with(self::equalTo($message), self::equalTo([new DelayStamp(5000)]))
+            ->willReturn(new Envelope($message));
+
+        $subject = new BunnyCdnService($client, $this->createMock(SiteFinder::class), $this->createExtensionConfiguration('secret-key', asyncRetryEnabled: true), $messageBus);
         $subject->retryPurgeUrl('https://de.example.com/page-5');
     }
 
